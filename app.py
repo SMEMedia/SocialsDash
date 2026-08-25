@@ -19,6 +19,8 @@ INSTAGRAM_API = "https://graph.instagram.com/v23.0"
 GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
 YOUTUBE_API = "https://www.googleapis.com/youtube/v3"
 YOUTUBE_ANALYTICS_API = "https://youtubeanalytics.googleapis.com/v2"
+LINKEDIN_DATA_DIR = Path(__file__).with_name("data") / "linkedin"
+LINKEDIN_UPLOAD_DATE = "August 25, 2026"
 
 PROFILES = [
     ("Facebook", "facebook", "https://www.facebook.com/SMEMediaNews"),
@@ -268,6 +270,12 @@ def compact(value: Any) -> str:
     return f"{number:,}"
 
 
+@st.cache_data(show_spinner=False)
+def linkedin_csv(name: str) -> pd.DataFrame:
+    path = LINKEDIN_DATA_DIR / f"{name}.csv"
+    return pd.read_csv(path) if path.is_file() else pd.DataFrame()
+
+
 def facebook_post_type(post: dict[str, Any]) -> str:
     """Map Graph attachment metadata into dashboard-friendly content types."""
     permalink = str(post.get("permalink_url", "")).lower()
@@ -432,7 +440,7 @@ if meta_error:
 if youtube_error:
     st.warning(f"YouTube data is unavailable: {youtube_error}")
 
-tab_overview, tab_meta, tab_youtube, tab_posts = st.tabs(["Overview", "Meta", "YouTube", "Content"])
+tab_overview, tab_meta, tab_youtube, tab_linkedin, tab_posts = st.tabs(["Overview", "Meta", "YouTube", "LinkedIn", "Content"])
 
 with tab_overview:
     st.markdown("#### Performance trend")
@@ -590,6 +598,98 @@ with tab_youtube:
         st.info("Channel totals connected successfully, but YouTube Analytics did not return daily data.")
     if youtube_data and youtube_data.get("analytics_error"):
         st.caption(f"YouTube Analytics API: {youtube_data['analytics_error']}")
+
+with tab_linkedin:
+    st.markdown("#### LinkedIn performance")
+    st.markdown(
+        f'<div class="connection-note"><b>Static LinkedIn snapshot:</b> These files were uploaded on {LINKEDIN_UPLOAD_DATE}. '
+        'LinkedIn is not API-connected, so this tab does not refresh automatically or follow the dashboard date control.</div>',
+        unsafe_allow_html=True,
+    )
+    li_content = linkedin_csv("content_metrics")
+    li_followers = linkedin_csv("followers_new_followers")
+    li_visitors = linkedin_csv("visitors_visitor_metrics")
+    li_posts = linkedin_csv("content_all_posts")
+
+    if not li_content.empty and not li_followers.empty and not li_visitors.empty:
+        for frame in (li_content, li_followers, li_visitors):
+            frame["Date"] = pd.to_datetime(frame["Date"], errors="coerce")
+        content_impressions = pd.to_numeric(li_content.get("Impressions (total)"), errors="coerce").fillna(0).sum()
+        content_clicks = pd.to_numeric(li_content.get("Clicks (total)"), errors="coerce").fillna(0).sum()
+        follower_gains = pd.to_numeric(li_followers.get("Total followers"), errors="coerce").fillna(0).sum()
+        page_views = pd.to_numeric(li_visitors.get("Total page views (total)"), errors="coerce").fillna(0).sum()
+        unique_visitors = pd.to_numeric(li_visitors.get("Total unique visitors (total)"), errors="coerce").fillna(0).sum()
+        total_engagements = sum(
+            pd.to_numeric(li_content.get(column), errors="coerce").fillna(0).sum()
+            for column in ["Clicks (total)", "Reactions (total)", "Comments (total)", "Reposts (total)"]
+        )
+        engagement_rate = total_engagements / content_impressions if content_impressions else 0
+
+        li_kpis = st.columns(5)
+        with li_kpis[0]: metric_card("Impressions", compact(content_impressions), "Static export total")
+        with li_kpis[1]: metric_card("Clicks", compact(content_clicks), "Static export total")
+        with li_kpis[2]: metric_card("Engagement rate", f"{engagement_rate:.1%}", "Weighted total")
+        with li_kpis[3]: metric_card("Followers gained", compact(follower_gains), "During export period")
+        with li_kpis[4]: metric_card("Unique visitors", compact(unique_visitors), f"{compact(page_views)} page views")
+
+        li_content = li_content.sort_values("Date")
+        li_trend = li_content[["Date", "Impressions (total)", "Clicks (total)"]].copy()
+        li_trend["Impressions"] = pd.to_numeric(li_trend["Impressions (total)"], errors="coerce").fillna(0)
+        li_trend["Clicks"] = pd.to_numeric(li_trend["Clicks (total)"], errors="coerce").fillna(0)
+        li_trend["Impressions · 7-day avg"] = li_trend["Impressions"].rolling(7, min_periods=1).mean()
+        li_fig = px.area(li_trend, x="Date", y="Impressions", template="plotly_white", color_discrete_sequence=["#bfdbfe"])
+        li_fig.update_traces(name="Daily impressions", line=dict(color="#60a5fa", width=1.5), fillcolor="rgba(96,165,250,.22)")
+        li_fig.add_scatter(x=li_trend["Date"], y=li_trend["Impressions · 7-day avg"], mode="lines", name="7-day average", line=dict(color="#0a66c2", width=3))
+        li_fig.update_layout(title="LinkedIn impressions over time", height=400, margin=dict(l=20, r=20, t=55, b=20), xaxis_title="", yaxis_title="Impressions", legend_title_text="", hovermode="x unified", paper_bgcolor="white", plot_bgcolor="white", font_color="#334155")
+        st.plotly_chart(li_fig, width="stretch")
+
+        follower_trend = li_followers.sort_values("Date").copy()
+        follower_trend["Organic"] = pd.to_numeric(follower_trend.get("Organic followers"), errors="coerce").fillna(0)
+        follower_trend["Sponsored"] = pd.to_numeric(follower_trend.get("Sponsored followers"), errors="coerce").fillna(0)
+        follower_chart = follower_trend[["Date", "Organic", "Sponsored"]].melt("Date", var_name="Source", value_name="New followers")
+        follower_fig = px.bar(follower_chart, x="Date", y="New followers", color="Source", barmode="stack", template="plotly_white", color_discrete_map={"Organic": "#0a66c2", "Sponsored": "#93c5fd"})
+        follower_fig.update_layout(title="Daily follower growth", height=350, margin=dict(l=20, r=20, t=55, b=20), xaxis_title="", legend_title_text="", paper_bgcolor="white", plot_bgcolor="white", font_color="#334155")
+
+        visitor_trend = li_visitors.sort_values("Date").copy()
+        visitor_trend["Page views"] = pd.to_numeric(visitor_trend.get("Total page views (total)"), errors="coerce").fillna(0)
+        visitor_trend["Unique visitors"] = pd.to_numeric(visitor_trend.get("Total unique visitors (total)"), errors="coerce").fillna(0)
+        visitor_chart = visitor_trend[["Date", "Page views", "Unique visitors"]].melt("Date", var_name="Metric", value_name="Count")
+        visitor_fig = px.line(visitor_chart, x="Date", y="Count", color="Metric", template="plotly_white", color_discrete_sequence=["#7c3aed", "#10b981"])
+        visitor_fig.update_layout(title="Page traffic", height=350, margin=dict(l=20, r=20, t=55, b=20), xaxis_title="", legend_title_text="", hovermode="x unified", paper_bgcolor="white", plot_bgcolor="white", font_color="#334155")
+        li_left, li_right = st.columns(2)
+        with li_left: st.plotly_chart(follower_fig, width="stretch")
+        with li_right: st.plotly_chart(visitor_fig, width="stretch")
+
+        st.markdown("##### Follower audience breakdown")
+        audience_files = {
+            "Industries": "followers_industry",
+            "Locations": "followers_location",
+            "Job functions": "followers_job_function",
+            "Seniority": "followers_seniority",
+            "Company size": "followers_company_size",
+        }
+        audience_tabs = st.tabs(list(audience_files))
+        for audience_tab, (label, file_name) in zip(audience_tabs, audience_files.items()):
+            with audience_tab:
+                breakdown = linkedin_csv(file_name)
+                if not breakdown.empty:
+                    value_column = "Total followers"
+                    breakdown[value_column] = pd.to_numeric(breakdown[value_column], errors="coerce").fillna(0)
+                    top = breakdown.nlargest(12, value_column).sort_values(value_column)
+                    category_column = next(column for column in top.columns if column != value_column)
+                    audience_fig = px.bar(top, x=value_column, y=category_column, orientation="h", template="plotly_white", color_discrete_sequence=["#0a66c2"])
+                    audience_fig.update_layout(height=390, margin=dict(l=20, r=20, t=20, b=20), xaxis_title="Followers", yaxis_title="", paper_bgcolor="white", plot_bgcolor="white", font_color="#334155")
+                    st.plotly_chart(audience_fig, width="stretch")
+
+        if not li_posts.empty:
+            st.markdown("##### Recent LinkedIn posts in the export")
+            li_posts["Created date"] = pd.to_datetime(li_posts["Created date"], errors="coerce")
+            recent_li = li_posts.sort_values("Created date", ascending=False).head(30).copy()
+            recent_li["Created date"] = recent_li["Created date"].dt.strftime("%Y-%m-%d")
+            post_columns = ["Created date", "Post title", "Post type", "Impressions", "Clicks", "Likes", "Comments", "Reposts", "Post link"]
+            st.dataframe(recent_li[[column for column in post_columns if column in recent_li]], width="stretch", hide_index=True, column_config={"Post link": st.column_config.LinkColumn("Open")})
+    else:
+        st.info("The static LinkedIn data files are unavailable in this deployment.")
 
 with tab_posts:
     st.markdown("#### Recent channel content")
