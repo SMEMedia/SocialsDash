@@ -74,7 +74,7 @@ def fetch_meta(start: str, end: str) -> dict[str, Any]:
         f"{META_API}/me",
         params={"fields": "id,name,fan_count,followers_count,link,picture.type(large)", "access_token": page_token},
     )
-    result: dict[str, Any] = {"page": page, "daily": [], "posts": [], "instagram": {}}
+    result: dict[str, Any] = {"page": page, "daily": [], "posts": [], "instagram": {}, "instagram_media": []}
 
     # Insights availability depends on the permissions granted to the page token.
     # Query separately: Meta rejects the entire request if even one metric is retired.
@@ -157,6 +157,23 @@ def fetch_meta(start: str, end: str) -> dict[str, Any]:
             ig_error = str(exc)
     if ig_error and not result["instagram"]:
         result["instagram_error"] = ig_error
+    elif ig_token:
+        try:
+            media = request_json(
+                "GET",
+                f"{INSTAGRAM_API}/me/media",
+                params={
+                    "fields": "id,caption,media_type,permalink,timestamp,like_count,comments_count",
+                    "limit": 50,
+                    "access_token": ig_token,
+                },
+            )
+            result["instagram_media"] = [
+                item for item in media.get("data", [])
+                if start <= item.get("timestamp", "")[:10] <= end
+            ]
+        except ApiError as exc:
+            result["instagram_media_error"] = str(exc)
     return result
 
 
@@ -181,13 +198,38 @@ def fetch_youtube(start: str, end: str) -> dict[str, Any]:
         "GET",
         f"{YOUTUBE_API}/channels",
         headers=headers,
-        params={"part": "snippet,statistics", "mine": "true"},
+        params={"part": "snippet,statistics,contentDetails", "mine": "true"},
     )
     channels = channel_payload.get("items", [])
     if not channels:
         raise ApiError("No YouTube channel is associated with these credentials.")
     channel = channels[0]
-    result: dict[str, Any] = {"channel": channel, "daily": []}
+    result: dict[str, Any] = {"channel": channel, "daily": [], "videos": []}
+    try:
+        uploads_id = channel.get("contentDetails", {}).get("relatedPlaylists", {}).get("uploads")
+        if uploads_id:
+            playlist = request_json(
+                "GET",
+                f"{YOUTUBE_API}/playlistItems",
+                headers=headers,
+                params={"part": "snippet,contentDetails", "playlistId": uploads_id, "maxResults": 50},
+            )
+            recent_items = [
+                item for item in playlist.get("items", [])
+                if start <= item.get("contentDetails", {}).get("videoPublishedAt", "")[:10] <= end
+            ]
+            video_ids = [item.get("contentDetails", {}).get("videoId") for item in recent_items]
+            video_ids = [video_id for video_id in video_ids if video_id]
+            if video_ids:
+                videos = request_json(
+                    "GET",
+                    f"{YOUTUBE_API}/videos",
+                    headers=headers,
+                    params={"part": "snippet,statistics", "id": ",".join(video_ids)},
+                )
+                result["videos"] = videos.get("items", [])
+    except ApiError as exc:
+        result["videos_error"] = str(exc)
     try:
         report = request_json(
             "GET",
@@ -522,23 +564,68 @@ with tab_youtube:
         st.caption(f"YouTube Analytics API: {youtube_data['analytics_error']}")
 
 with tab_posts:
-    st.markdown("#### Recent Facebook posts")
-    posts = (meta_data or {}).get("posts", [])
-    if posts:
-        rows = []
-        for post in posts:
-            rows.append({
-                "Published": post.get("created_time", "")[:10],
-                "Post": (post.get("message") or "(Media post)")[:140],
-                "Likes": post.get("likes", {}).get("summary", {}).get("total_count", 0),
-                "Comments": post.get("comments", {}).get("summary", {}).get("total_count", 0),
-                "Shares": post.get("shares", {}).get("count", 0),
-                "Link": post.get("permalink_url", ""),
-            })
-        st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True, column_config={"Link": st.column_config.LinkColumn("Open")})
-    else:
-        st.info("No Facebook posts were returned for this reporting window.")
-    if meta_data and meta_data.get("posts_error"):
-        st.caption(f"Meta Posts API: {meta_data['posts_error']}")
+    st.markdown("#### Recent channel content")
+    st.caption("Posts and videos published during the selected reporting window.")
+    content_facebook, content_instagram, content_youtube = st.tabs(["Facebook", "Instagram", "YouTube"])
+
+    with content_facebook:
+        posts = (meta_data or {}).get("posts", [])
+        if posts:
+            rows = []
+            for post in posts:
+                rows.append({
+                    "Published": post.get("created_time", "")[:10],
+                    "Post": (post.get("message") or "(Media post)")[:160],
+                    "Likes": post.get("likes", {}).get("summary", {}).get("total_count", 0),
+                    "Comments": post.get("comments", {}).get("summary", {}).get("total_count", 0),
+                    "Shares": post.get("shares", {}).get("count", 0),
+                    "Link": post.get("permalink_url", ""),
+                })
+            st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True, column_config={"Link": st.column_config.LinkColumn("Open")})
+        else:
+            st.info("No Facebook posts were returned for this reporting window.")
+        if meta_data and meta_data.get("posts_error"):
+            st.caption(f"Meta Posts API: {meta_data['posts_error']}")
+
+    with content_instagram:
+        instagram_media = (meta_data or {}).get("instagram_media", [])
+        if instagram_media:
+            rows = []
+            for item in instagram_media:
+                rows.append({
+                    "Published": item.get("timestamp", "")[:10],
+                    "Type": str(item.get("media_type", "")).replace("_", " ").title(),
+                    "Caption": (item.get("caption") or "(No caption)")[:160],
+                    "Likes": int_value(item.get("like_count")),
+                    "Comments": int_value(item.get("comments_count")),
+                    "Link": item.get("permalink", ""),
+                })
+            st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True, column_config={"Link": st.column_config.LinkColumn("Open")})
+        else:
+            st.info("No Instagram media was returned for this reporting window.")
+        if meta_data and meta_data.get("instagram_media_error"):
+            st.caption(f"Instagram Media API: {meta_data['instagram_media_error']}")
+
+    with content_youtube:
+        videos = (youtube_data or {}).get("videos", [])
+        if videos:
+            rows = []
+            for video in videos:
+                snippet = video.get("snippet", {})
+                stats = video.get("statistics", {})
+                video_id = video.get("id", "")
+                rows.append({
+                    "Published": snippet.get("publishedAt", "")[:10],
+                    "Video": snippet.get("title", "(Untitled video)"),
+                    "Views": int_value(stats.get("viewCount")),
+                    "Likes": int_value(stats.get("likeCount")),
+                    "Comments": int_value(stats.get("commentCount")),
+                    "Link": f"https://www.youtube.com/watch?v={video_id}" if video_id else "",
+                })
+            st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True, column_config={"Link": st.column_config.LinkColumn("Open")})
+        else:
+            st.info("No YouTube videos were returned for this reporting window.")
+        if youtube_data and youtube_data.get("videos_error"):
+            st.caption(f"YouTube Data API: {youtube_data['videos_error']}")
 
 st.caption(f"Reporting window: {start} through {end} · Data cached for 15 minutes · Last refreshed when this page loaded")
