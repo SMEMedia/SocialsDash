@@ -77,7 +77,7 @@ def fetch_meta(start: str, end: str) -> dict[str, Any]:
         f"{META_API}/me",
         params={"fields": "id,name,fan_count,followers_count,link,picture.type(large)", "access_token": page_token},
     )
-    result: dict[str, Any] = {"page": page, "daily": [], "posts": [], "instagram": {}, "instagram_media": []}
+    result: dict[str, Any] = {"page": page, "daily": [], "posts": [], "instagram": {}, "instagram_media": [], "meta_audience": {}}
 
     # Insights availability depends on the permissions granted to the page token.
     # Query separately: Meta rejects the entire request if even one metric is retired.
@@ -177,6 +177,29 @@ def fetch_meta(start: str, end: str) -> dict[str, Any]:
             ]
         except ApiError as exc:
             result["instagram_media_error"] = str(exc)
+    if ig_token:
+        audience_errors: list[str] = []
+        for breakdown in ("age,gender", "country", "city"):
+            try:
+                audience = request_json(
+                    "GET",
+                    f"{INSTAGRAM_API}/me/insights",
+                    params={
+                        "metric": "follower_demographics",
+                        "period": "lifetime",
+                        "metric_type": "total_value",
+                        "breakdown": breakdown,
+                        "timeframe": "last_90_days",
+                        "access_token": ig_token,
+                    },
+                )
+                data = audience.get("data", [])
+                breakdowns = data[0].get("total_value", {}).get("breakdowns", []) if data else []
+                result["meta_audience"][breakdown] = breakdowns[0].get("results", []) if breakdowns else []
+            except ApiError as exc:
+                audience_errors.append(f"{breakdown}: {exc}")
+        if audience_errors:
+            result["meta_audience_error"] = " · ".join(audience_errors)
     return result
 
 
@@ -516,6 +539,73 @@ with tab_meta:
             st.plotly_chart(meta_fig, width="stretch")
     elif meta_data:
         st.info("Page profile data connected successfully, but daily Page Insights were not returned.")
+    audience = (meta_data or {}).get("meta_audience", {})
+    if audience:
+        st.markdown("#### Meta audience")
+        st.caption("Live Instagram follower demographics from Meta · Meta reporting window: last 90 days")
+        age_gender_rows = []
+        gender_names = {"F": "Women", "M": "Men", "U": "Unspecified"}
+        for item in audience.get("age,gender", []):
+            dimensions = item.get("dimension_values", [])
+            if len(dimensions) >= 2:
+                age_gender_rows.append({"Age": dimensions[0], "Gender": gender_names.get(dimensions[1], dimensions[1]), "Followers": int_value(item.get("value"))})
+        if age_gender_rows:
+            age_frame = pd.DataFrame(age_gender_rows)
+            reported_total = age_frame["Followers"].sum()
+            age_frame["Share"] = age_frame["Followers"] / reported_total if reported_total else 0
+            age_order = ["13-17", "18-24", "25-34", "35-44", "45-54", "55-64", "65+"]
+            age_fig = px.bar(
+                age_frame,
+                x="Age",
+                y="Share",
+                color="Gender",
+                barmode="group",
+                category_orders={"Age": age_order, "Gender": ["Men", "Women", "Unspecified"]},
+                color_discrete_map={"Men": "#60a5fa", "Women": "#ec4899", "Unspecified": "#94a3b8"},
+                template="plotly_white",
+                hover_data={"Followers": True, "Share": ":.1%"},
+            )
+            age_fig.update_layout(title="Age and gender", height=390, margin=dict(l=20, r=20, t=55, b=20), xaxis_title="", yaxis_title="Share of reported followers", yaxis_tickformat=".0%", legend_title_text="", paper_bgcolor="white", plot_bgcolor="white", font_color="#334155")
+            st.plotly_chart(age_fig, width="stretch")
+
+        country_names = {
+            "US": "United States", "IN": "India", "PR": "Puerto Rico", "CN": "China", "TR": "Türkiye",
+            "PK": "Pakistan", "GB": "United Kingdom", "CA": "Canada", "MX": "Mexico", "BR": "Brazil",
+            "DE": "Germany", "FR": "France", "AU": "Australia", "ZA": "South Africa", "IT": "Italy",
+            "ID": "Indonesia", "CH": "Switzerland", "TN": "Tunisia", "CL": "Chile", "PE": "Peru",
+        }
+
+        def demographic_frame(items: list[dict[str, Any]], dimension: str) -> pd.DataFrame:
+            rows = []
+            for item in items:
+                values = item.get("dimension_values", [])
+                if values:
+                    label = values[0]
+                    if dimension == "Country":
+                        label = country_names.get(label, label)
+                    rows.append({dimension: label, "Followers": int_value(item.get("value"))})
+            frame = pd.DataFrame(rows)
+            if not frame.empty:
+                total = frame["Followers"].sum()
+                frame["Share"] = frame["Followers"] / total if total else 0
+            return frame
+
+        country_frame = demographic_frame(audience.get("country", []), "Country")
+        city_frame = demographic_frame(audience.get("city", []), "City")
+        geo_left, geo_right = st.columns(2)
+        for column, frame, dimension, title in [
+            (geo_left, country_frame, "Country", "Top countries"),
+            (geo_right, city_frame, "City", "Top cities"),
+        ]:
+            with column:
+                if not frame.empty:
+                    top = frame.nlargest(10, "Followers").sort_values("Followers")
+                    geo_fig = px.bar(top, x="Share", y=dimension, orientation="h", text="Followers", template="plotly_white", color_discrete_sequence=["#0f766e"])
+                    geo_fig.update_layout(title=title, height=390, margin=dict(l=20, r=20, t=55, b=20), xaxis_title="Share of reported followers", xaxis_tickformat=".0%", yaxis_title="", paper_bgcolor="white", plot_bgcolor="white", font_color="#334155")
+                    st.plotly_chart(geo_fig, width="stretch")
+        st.info("Facebook Page follower demographics are no longer returned by the current Meta Page Insights API. The audience charts above are for the connected Instagram professional account.")
+    if meta_data and meta_data.get("meta_audience_error"):
+        st.caption(f"Meta Audience API: {meta_data['meta_audience_error']}")
     if meta_data and meta_data.get("insights_error"):
         st.caption(f"Meta Insights API: {meta_data['insights_error']}")
 
