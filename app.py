@@ -115,7 +115,7 @@ def fetch_meta(start: str, end: str) -> dict[str, Any]:
             "GET",
             f"{META_API}/{page['id']}/posts",
             params={
-                "fields": "id,message,created_time,permalink_url,shares,likes.summary(true),comments.summary(true)",
+                "fields": "id,message,created_time,permalink_url,shares,attachments{media_type,type,url},likes.summary(true),comments.summary(true)",
                 "since": start,
                 "until": end,
                 "limit": 50,
@@ -265,6 +265,32 @@ def compact(value: Any) -> str:
     if number >= 1_000:
         return f"{number / 1_000:.1f}K"
     return f"{number:,}"
+
+
+def facebook_post_type(post: dict[str, Any]) -> str:
+    """Map Graph attachment metadata into dashboard-friendly content types."""
+    permalink = str(post.get("permalink_url", "")).lower()
+    message = str(post.get("message", "")).lower()
+    attachments = post.get("attachments", {}).get("data", [])
+    attachment = attachments[0] if attachments else {}
+    media_type = str(attachment.get("media_type", "")).lower()
+    attachment_type = str(attachment.get("type", "")).lower()
+    attachment_url = str(attachment.get("url", "")).lower()
+    combined = " ".join((permalink, media_type, attachment_type, attachment_url))
+
+    if "/reel/" in permalink or "/reels/" in permalink or "reel" in combined:
+        return "Reel"
+    if "live" in combined or (" live" in message and "video" in combined):
+        return "Live"
+    if "photo" in combined or "album" in combined or "image" in combined:
+        return "Photo"
+    if "link" in combined or "share" in attachment_type:
+        return "Link"
+    # Standard Facebook video posts are grouped with Reels in the requested
+    # five-type view unless Graph marks them as Live.
+    if "video" in combined:
+        return "Reel"
+    return "Text"
 
 
 def metric_card(label: str, value: Any, note: str = "") -> None:
@@ -575,13 +601,76 @@ with tab_posts:
             for post in posts:
                 rows.append({
                     "Published": post.get("created_time", "")[:10],
+                    "Type": facebook_post_type(post),
                     "Post": (post.get("message") or "(Media post)")[:160],
                     "Likes": post.get("likes", {}).get("summary", {}).get("total_count", 0),
                     "Comments": post.get("comments", {}).get("summary", {}).get("total_count", 0),
                     "Shares": post.get("shares", {}).get("count", 0),
                     "Link": post.get("permalink_url", ""),
                 })
-            st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True, column_config={"Link": st.column_config.LinkColumn("Open")})
+            facebook_frame = pd.DataFrame(rows)
+            facebook_frame["Engagements"] = facebook_frame[["Likes", "Comments", "Shares"]].sum(axis=1)
+            type_order = ["Live", "Photo", "Link", "Text", "Reel"]
+            type_summary = (
+                facebook_frame.groupby("Type", as_index=False)
+                .agg(Posts=("Type", "size"), Engagements=("Engagements", "sum"))
+            )
+            type_summary["Type"] = pd.Categorical(type_summary["Type"], categories=type_order, ordered=True)
+            type_summary = type_summary.sort_values("Type")
+
+            volume_fig = px.bar(
+                type_summary,
+                x="Type",
+                y="Posts",
+                color="Type",
+                text_auto=True,
+                category_orders={"Type": type_order},
+                color_discrete_map={"Live": "#ef4444", "Photo": "#7c3aed", "Link": "#2563eb", "Text": "#64748b", "Reel": "#ec4899"},
+                template="plotly_white",
+            )
+            volume_fig.update_layout(
+                title="Facebook post mix",
+                height=330,
+                margin=dict(l=20, r=20, t=55, b=20),
+                xaxis_title="",
+                yaxis_title="Posts",
+                showlegend=False,
+                paper_bgcolor="white",
+                plot_bgcolor="white",
+                font_color="#334155",
+            )
+            engagement_fig = px.bar(
+                type_summary,
+                x="Type",
+                y="Engagements",
+                color="Type",
+                text_auto=True,
+                category_orders={"Type": type_order},
+                color_discrete_map={"Live": "#ef4444", "Photo": "#7c3aed", "Link": "#2563eb", "Text": "#64748b", "Reel": "#ec4899"},
+                template="plotly_white",
+            )
+            engagement_fig.update_layout(
+                title="Engagement by post type",
+                height=330,
+                margin=dict(l=20, r=20, t=55, b=20),
+                xaxis_title="",
+                yaxis_title="Likes + comments + shares",
+                showlegend=False,
+                paper_bgcolor="white",
+                plot_bgcolor="white",
+                font_color="#334155",
+            )
+            mix_left, mix_right = st.columns(2)
+            with mix_left:
+                st.plotly_chart(volume_fig, width="stretch")
+            with mix_right:
+                st.plotly_chart(engagement_fig, width="stretch")
+            st.dataframe(
+                facebook_frame.drop(columns=["Engagements"]),
+                width="stretch",
+                hide_index=True,
+                column_config={"Link": st.column_config.LinkColumn("Open")},
+            )
         else:
             st.info("No Facebook posts were returned for this reporting window.")
         if meta_data and meta_data.get("posts_error"):
