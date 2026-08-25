@@ -26,6 +26,7 @@ PROFILES = [
     ("LinkedIn", "linkedin", "https://www.linkedin.com/showcase/sme-manufacturing-media/"),
     ("X", "x", "https://x.com/SMEMediaNews"),
     ("TikTok", "tiktok", "https://www.tiktok.com/@sme.media"),
+    ("YouTube", "youtube", "https://www.youtube.com/@SMEMedia"),
 ]
 
 
@@ -308,6 +309,7 @@ def profile_links() -> str:
         "linkedin": '<svg viewBox="0 0 24 24" aria-hidden="true"><rect width="24" height="24" rx="3" fill="#0A66C2"/><path fill="white" d="M6.2 8.3H3.4V20h2.8V8.3zM4.8 4A1.65 1.65 0 1 0 4.8 7.3 1.65 1.65 0 0 0 4.8 4zM20.6 13.3c0-3.5-1.9-5.2-4.4-5.2-2 0-3 1.1-3.5 1.9V8.3H10V20h2.8v-5.8c0-1.5.3-3 2.2-3 1.9 0 1.9 1.8 1.9 3.1V20h2.8l-.1-6.7z"/></svg>',
         "x": '<svg viewBox="0 0 24 24" aria-hidden="true"><rect width="24" height="24" rx="4" fill="#111"/><path fill="white" d="M5 4h3.7l4.1 5.5L17.6 4H19l-5.6 6.5L20 20h-3.7l-4.6-6.3L6.2 20H4.8l6.2-7.3L5 4zm2.2 1.1 9.6 13.8h1.9L9.1 5.1H7.2z"/></svg>',
         "tiktok": '<svg viewBox="0 0 24 24" aria-hidden="true"><rect width="24" height="24" rx="4" fill="#111"/><path fill="#25F4EE" d="M15 4v10.2a4.6 4.6 0 1 1-4-4.6v2.5a2.1 2.1 0 1 0 1.5 2V4H15z"/><path fill="#FE2C55" d="M16.3 4c.3 1.7 1.3 2.8 3 3.3v2.4a7 7 0 0 1-4.3-2V4h1.3z"/></svg>',
+        "youtube": '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="1" y="4" width="22" height="16" rx="5" fill="#FF0000"/><path fill="white" d="m10 8.5 6 3.5-6 3.5v-7z"/></svg>',
     }
     links = []
     for name, slug, url in PROFILES:
