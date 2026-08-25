@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import html
+import json
 import tomllib
 from datetime import date, timedelta
 from pathlib import Path
@@ -21,6 +22,7 @@ YOUTUBE_API = "https://www.googleapis.com/youtube/v3"
 YOUTUBE_ANALYTICS_API = "https://youtubeanalytics.googleapis.com/v2"
 LINKEDIN_DATA_DIR = Path(__file__).with_name("data") / "linkedin"
 LINKEDIN_UPLOAD_DATE = "August 25, 2026"
+FACEBOOK_AUDIENCE_FILE = Path(__file__).with_name("data") / "meta" / "facebook_audience_2026-08-25.json"
 
 PROFILES = [
     ("Facebook", "facebook", "https://www.facebook.com/SMEMediaNews"),
@@ -299,6 +301,14 @@ def linkedin_csv(name: str) -> pd.DataFrame:
     return pd.read_csv(path) if path.is_file() else pd.DataFrame()
 
 
+@st.cache_data(show_spinner=False)
+def facebook_audience_snapshot() -> dict[str, Any]:
+    if not FACEBOOK_AUDIENCE_FILE.is_file():
+        return {}
+    with FACEBOOK_AUDIENCE_FILE.open("r", encoding="utf-8") as handle:
+        return json.load(handle)
+
+
 def facebook_post_type(post: dict[str, Any]) -> str:
     """Map Graph attachment metadata into dashboard-friendly content types."""
     permalink = str(post.get("permalink_url", "")).lower()
@@ -539,9 +549,55 @@ with tab_meta:
             st.plotly_chart(meta_fig, width="stretch")
     elif meta_data:
         st.info("Page profile data connected successfully, but daily Page Insights were not returned.")
+    facebook_audience = facebook_audience_snapshot()
+    if facebook_audience:
+        st.markdown("#### Meta audience")
+        st.markdown(
+            f'<div class="connection-note"><b>Static Facebook audience snapshot:</b> Uploaded {facebook_audience.get("uploaded_date", "August 25, 2026")}. '
+            'Facebook audience demographics do not refresh automatically.</div>',
+            unsafe_allow_html=True,
+        )
+        facebook_age = pd.DataFrame(facebook_audience.get("age_gender", []))
+        if not facebook_age.empty:
+            facebook_age = facebook_age.rename(columns={"age": "Age", "men": "Men", "women": "Women"})
+            facebook_age_chart = facebook_age.melt("Age", value_vars=["Men", "Women"], var_name="Gender", value_name="Percent")
+            facebook_age_chart["Share"] = facebook_age_chart["Percent"] / 100
+            fb_age_fig = px.bar(
+                facebook_age_chart,
+                x="Age",
+                y="Share",
+                color="Gender",
+                barmode="group",
+                category_orders={"Age": ["18-24", "25-34", "35-44", "45-54", "55-64", "65+"]},
+                color_discrete_map={"Men": "#93c5fd", "Women": "#2563eb"},
+                template="plotly_white",
+                hover_data={"Percent": ":.1f", "Share": False},
+            )
+            fb_age_fig.update_layout(title="Facebook follower age and gender", height=390, margin=dict(l=20, r=20, t=55, b=20), xaxis_title="", yaxis_title="Share of followers", yaxis_tickformat=".0%", legend_title_text="", paper_bgcolor="white", plot_bgcolor="white", font_color="#334155")
+            st.plotly_chart(fb_age_fig, width="stretch")
+
+        fb_geo_left, fb_geo_right = st.columns(2)
+        for column, key, label in [(fb_geo_left, "countries", "Country"), (fb_geo_right, "cities", "City")]:
+            with column:
+                geo = pd.DataFrame(facebook_audience.get(key, []))
+                if not geo.empty:
+                    geo = geo.rename(columns={"name": label, "share": "Percent"}).sort_values("Percent")
+                    geo["Share"] = geo["Percent"] / 100
+                    fb_geo_fig = px.bar(geo, x="Share", y=label, orientation="h", text="Percent", template="plotly_white", color_discrete_sequence=["#0f766e"])
+                    fb_geo_fig.update_traces(texttemplate="%{text:.1f}%", textposition="outside")
+                    fb_geo_fig.update_layout(title=f"Facebook top {key}", height=410, margin=dict(l=20, r=45, t=55, b=20), xaxis_title="Share of followers", xaxis_tickformat=".0%", yaxis_title="", paper_bgcolor="white", plot_bgcolor="white", font_color="#334155")
+                    st.plotly_chart(fb_geo_fig, width="stretch")
+
+        follows = pd.DataFrame(facebook_audience.get("follows", []))
+        if not follows.empty:
+            follows["date"] = pd.to_datetime(follows["date"])
+            follows_fig = px.bar(follows, x="date", y="value", template="plotly_white", color_discrete_sequence=["#1877f2"], labels={"date": "", "value": "New follows"})
+            follows_fig.update_layout(title="Facebook daily follows in the export", height=320, margin=dict(l=20, r=20, t=55, b=20), paper_bgcolor="white", plot_bgcolor="white", font_color="#334155")
+            st.plotly_chart(follows_fig, width="stretch")
+
     audience = (meta_data or {}).get("meta_audience", {})
     if audience:
-        st.markdown("#### Meta audience")
+        st.markdown("#### Instagram audience")
         st.caption("Live Instagram follower demographics from Meta · Meta reporting window: last 90 days")
         age_gender_rows = []
         gender_names = {"F": "Women", "M": "Men", "U": "Unspecified"}
@@ -603,7 +659,7 @@ with tab_meta:
                     geo_fig = px.bar(top, x="Share", y=dimension, orientation="h", text="Followers", template="plotly_white", color_discrete_sequence=["#0f766e"])
                     geo_fig.update_layout(title=title, height=390, margin=dict(l=20, r=20, t=55, b=20), xaxis_title="Share of reported followers", xaxis_tickformat=".0%", yaxis_title="", paper_bgcolor="white", plot_bgcolor="white", font_color="#334155")
                     st.plotly_chart(geo_fig, width="stretch")
-        st.info("Facebook Page follower demographics are no longer returned by the current Meta Page Insights API. The audience charts above are for the connected Instagram professional account.")
+        st.info("Facebook Page follower demographics are no longer returned by the current Meta Page Insights API. The Instagram charts in this section remain live; the Facebook charts use the dated export above.")
     if meta_data and meta_data.get("meta_audience_error"):
         st.caption(f"Meta Audience API: {meta_data['meta_audience_error']}")
     if meta_data and meta_data.get("insights_error"):
