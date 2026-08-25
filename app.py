@@ -274,11 +274,19 @@ st.markdown(
     .social-link svg { width:20px; height:20px; flex:0 0 20px; }
     .connection-note { background:#fff7ed; border:1px solid #fed7aa; border-radius:14px; color:#9a3412; padding:.9rem 1rem; margin:.5rem 0 1.5rem; }
     div[data-testid="stPlotlyChart"] { background:white; border:1px solid #e5eaf1; border-radius:16px; padding:.5rem; }
-    .stTabs [data-baseweb="tab-list"] { gap:.35rem; border-bottom:1px solid #dbe3ed; }
-    .stTabs [data-baseweb="tab"] { color:#475569 !important; background:#eef2f7; border-radius:9px 9px 0 0; padding:.65rem 1rem; }
-    .stTabs [data-baseweb="tab"] p { color:#475569 !important; font-weight:600; }
-    .stTabs [aria-selected="true"] { background:#ffffff !important; }
-    .stTabs [aria-selected="true"] p { color:#2563eb !important; }
+    [data-baseweb="tab-list"] { gap:.35rem !important; border-bottom:1px solid #dbe3ed !important; }
+    [data-baseweb="tab-list"] [role="tab"] {
+        color:#334155 !important; background:#e8edf4 !important; opacity:1 !important;
+        border-radius:9px 9px 0 0 !important; padding:.65rem 1rem !important;
+    }
+    [data-baseweb="tab-list"] [role="tab"] * {
+        color:#334155 !important; opacity:1 !important; font-weight:700 !important;
+        -webkit-text-fill-color:#334155 !important;
+    }
+    [data-baseweb="tab-list"] [role="tab"][aria-selected="true"] { background:#ffffff !important; }
+    [data-baseweb="tab-list"] [role="tab"][aria-selected="true"] * {
+        color:#2563eb !important; -webkit-text-fill-color:#2563eb !important;
+    }
     </style>
     """,
     unsafe_allow_html=True,
