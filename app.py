@@ -261,6 +261,16 @@ st.markdown(
     .block-container { max-width: 1320px; padding-top: 4.75rem; padding-bottom: 4rem; }
     [data-testid="stSidebar"] { background: #111827; }
     [data-testid="stSidebar"] * { color: #f8fafc; }
+    [data-testid="stSidebar"] [data-baseweb="select"] > div,
+    [data-testid="stSidebar"] [data-baseweb="input"] > div,
+    [data-testid="stSidebar"] [data-baseweb="base-input"],
+    [data-testid="stSidebar"] button[kind="secondary"] { background:#f8fafc !important; }
+    [data-testid="stSidebar"] [data-baseweb="select"] *,
+    [data-testid="stSidebar"] [data-baseweb="input"] *,
+    [data-testid="stSidebar"] input,
+    [data-testid="stSidebar"] button[kind="secondary"] * {
+        color:#172033 !important; -webkit-text-fill-color:#172033 !important; opacity:1 !important;
+    }
     .eyebrow { color: #2563eb; font-size: .76rem; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; }
     .hero-title { font-size: clamp(2rem, 4vw, 3.5rem); font-weight: 700; letter-spacing: -.045em; margin: .2rem 0; }
     .hero-copy { color: #64748b; max-width: 700px; font-size: 1.05rem; }
@@ -392,6 +402,40 @@ with tab_meta:
         with c: metric_card("Post engagements", compact(totals.get("page_post_engagements")), f"{start} to {end}")
         with d: metric_card("New follows", compact(totals.get("page_daily_follows")), f"{start} to {end}")
         st.caption(f"Instagram media published all-time: {compact((meta_data or {}).get('instagram', {}).get('media_count'))}")
+        meta_chart_columns = {
+            "page_views_total": "Page views",
+            "page_media_view": "Media views",
+            "page_post_engagements": "Post engagements",
+        }
+        available_meta = [column for column in meta_chart_columns if column in daily]
+        if available_meta:
+            meta_chart = daily[["date", *available_meta]].copy()
+            meta_chart["date"] = pd.to_datetime(meta_chart["date"])
+            for column in available_meta:
+                meta_chart[column] = pd.to_numeric(meta_chart[column], errors="coerce").fillna(0).clip(lower=0)
+            meta_chart = meta_chart.rename(columns=meta_chart_columns).melt("date", var_name="Metric", value_name="Daily total")
+            meta_fig = px.line(
+                meta_chart,
+                x="date",
+                y="Daily total",
+                color="Metric",
+                markers=True,
+                template="plotly_white",
+                color_discrete_sequence=["#1877f2", "#7c3aed", "#10b981"],
+            )
+            meta_fig.update_traces(line=dict(width=2.5), marker=dict(size=5))
+            meta_fig.update_layout(
+                title="Daily Meta activity",
+                height=390,
+                margin=dict(l=20, r=20, t=55, b=20),
+                xaxis_title="",
+                legend_title_text="",
+                hovermode="x unified",
+                paper_bgcolor="white",
+                plot_bgcolor="white",
+                font_color="#334155",
+            )
+            st.plotly_chart(meta_fig, width="stretch")
     elif meta_data:
         st.info("Page profile data connected successfully, but daily Page Insights were not returned.")
     if meta_data and meta_data.get("insights_error"):
@@ -401,6 +445,11 @@ with tab_youtube:
     st.markdown("#### YouTube performance")
     daily = pd.DataFrame((youtube_data or {}).get("daily", []))
     if not daily.empty:
+        daily["day"] = pd.to_datetime(daily["day"])
+        numeric_columns = ["views", "estimatedMinutesWatched", "likes", "comments", "shares", "subscribersGained", "subscribersLost"]
+        for column in numeric_columns:
+            if column in daily:
+                daily[column] = pd.to_numeric(daily[column], errors="coerce").fillna(0)
         views = daily.get("views", pd.Series(dtype=float)).sum()
         minutes = daily.get("estimatedMinutesWatched", pd.Series(dtype=float)).sum()
         gained = daily.get("subscribersGained", pd.Series(dtype=float)).sum()
@@ -410,12 +459,63 @@ with tab_youtube:
         with b: metric_card("Watch time", f"{minutes / 60:,.1f} hrs", "Estimated")
         with c: metric_card("Subscribers gained", compact(gained), "In reporting window")
         with d: metric_card("Net subscribers", f"{int(gained - lost):+,}", "Gained minus lost")
+        if "views" in daily:
+            daily["7-day average"] = daily["views"].rolling(7, min_periods=1).mean()
+            views_fig = px.area(
+                daily,
+                x="day",
+                y="views",
+                template="plotly_white",
+                labels={"day": "", "views": "Daily views"},
+                color_discrete_sequence=["#bfdbfe"],
+            )
+            views_fig.update_traces(name="Daily views", line=dict(color="#60a5fa", width=1.5), fillcolor="rgba(96,165,250,.22)")
+            views_fig.add_scatter(
+                x=daily["day"],
+                y=daily["7-day average"],
+                mode="lines",
+                name="7-day average",
+                line=dict(color="#dc2626", width=3),
+            )
+            views_fig.update_layout(
+                title="Views over time",
+                height=400,
+                margin=dict(l=20, r=20, t=55, b=20),
+                legend_title_text="",
+                hovermode="x unified",
+                paper_bgcolor="white",
+                plot_bgcolor="white",
+                font_color="#334155",
+            )
+            st.plotly_chart(views_fig, width="stretch")
+
+        chart_left, chart_right = st.columns(2)
         engagement_cols = [column for column in ["likes", "comments", "shares"] if column in daily]
         if engagement_cols:
-            chart = daily[["day", *engagement_cols]].melt("day", var_name="Engagement", value_name="Count")
-            fig = px.bar(chart, x="day", y="Count", color="Engagement", barmode="group", color_discrete_sequence=["#ef4444", "#f59e0b", "#2563eb"], template="plotly_white")
-            fig.update_layout(height=360, margin=dict(l=20, r=20, t=25, b=20), xaxis_title="", legend_title_text="", paper_bgcolor="white", plot_bgcolor="white", font_color="#334155")
-            st.plotly_chart(fig, width="stretch")
+            # YouTube reports net likes, which can be negative when likes are removed.
+            # For an activity chart, show new positive interactions only.
+            engagement = daily[["day", *engagement_cols]].copy()
+            engagement[engagement_cols] = engagement[engagement_cols].clip(lower=0)
+            chart = engagement.melt("day", var_name="Engagement", value_name="Count")
+            fig = px.bar(chart, x="day", y="Count", color="Engagement", barmode="stack", color_discrete_sequence=["#ef4444", "#f59e0b", "#2563eb"], template="plotly_white")
+            fig.update_layout(title="Positive engagement", height=350, margin=dict(l=20, r=20, t=55, b=20), xaxis_title="", legend_title_text="", paper_bgcolor="white", plot_bgcolor="white", font_color="#334155")
+            with chart_left:
+                st.plotly_chart(fig, width="stretch")
+        if "subscribersGained" in daily and "subscribersLost" in daily:
+            subscriber_chart = daily[["day", "subscribersGained", "subscribersLost"]].copy()
+            subscriber_chart["Net subscribers"] = subscriber_chart["subscribersGained"] - subscriber_chart["subscribersLost"]
+            subscriber_chart["Direction"] = subscriber_chart["Net subscribers"].apply(lambda value: "Gained" if value >= 0 else "Lost")
+            sub_fig = px.bar(
+                subscriber_chart,
+                x="day",
+                y="Net subscribers",
+                color="Direction",
+                color_discrete_map={"Gained": "#10b981", "Lost": "#ef4444"},
+                template="plotly_white",
+            )
+            sub_fig.update_layout(title="Daily subscriber change", height=350, margin=dict(l=20, r=20, t=55, b=20), xaxis_title="", legend_title_text="", paper_bgcolor="white", plot_bgcolor="white", font_color="#334155")
+            with chart_right:
+                st.plotly_chart(sub_fig, width="stretch")
     elif youtube_data:
         st.info("Channel totals connected successfully, but YouTube Analytics did not return daily data.")
     if youtube_data and youtube_data.get("analytics_error"):
