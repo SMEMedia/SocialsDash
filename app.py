@@ -343,6 +343,18 @@ def metric_card(label: str, value: Any, note: str = "") -> None:
     )
 
 
+def show_chart(figure: Any) -> None:
+    """Render a Plotly chart with pan and zoom interactions disabled."""
+    figure.update_xaxes(fixedrange=True)
+    figure.update_yaxes(fixedrange=True)
+    figure.update_layout(dragmode=False)
+    st.plotly_chart(
+        figure,
+        width="stretch",
+        config={"scrollZoom": False, "displayModeBar": False, "doubleClick": False},
+    )
+
+
 def profile_links() -> str:
     icons = {
         "facebook": '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="12" fill="#1877F2"/><path fill="white" d="M13.6 21v-8h2.7l.4-3h-3.1V8.1c0-.9.3-1.5 1.6-1.5h1.7V3.9c-.3 0-1.3-.1-2.5-.1-2.5 0-4.2 1.5-4.2 4.3V10H7.4v3h2.8v8h3.4z"/></svg>',
@@ -498,7 +510,7 @@ with tab_overview:
         trend["date"] = pd.to_datetime(trend["date"])
         fig = px.line(trend, x="date", y="value", color="metric", markers=True, color_discrete_sequence=["#2563eb", "#7c3aed", "#10b981", "#f59e0b", "#ef4444"], template="plotly_white")
         fig.update_layout(height=420, margin=dict(l=20, r=20, t=25, b=20), legend_title_text="", xaxis_title="", yaxis_title="Daily activity", hovermode="x unified", paper_bgcolor="white", plot_bgcolor="white", font_color="#334155")
-        st.plotly_chart(fig, width="stretch")
+        show_chart(fig)
     else:
         st.info("No daily trend data was returned for this reporting window. Check the API permission notes in the channel tabs.")
 
@@ -546,7 +558,7 @@ with tab_meta:
                 plot_bgcolor="white",
                 font_color="#334155",
             )
-            st.plotly_chart(meta_fig, width="stretch")
+            show_chart(meta_fig)
     elif meta_data:
         st.info("Page profile data connected successfully, but daily Page Insights were not returned.")
     facebook_audience = facebook_audience_snapshot()
@@ -574,7 +586,7 @@ with tab_meta:
                 hover_data={"Percent": ":.1f", "Share": False},
             )
             fb_age_fig.update_layout(title="Facebook follower age and gender", height=390, margin=dict(l=20, r=20, t=55, b=20), xaxis_title="", yaxis_title="Share of followers", yaxis_tickformat=".0%", legend_title_text="", paper_bgcolor="white", plot_bgcolor="white", font_color="#334155")
-            st.plotly_chart(fb_age_fig, width="stretch")
+            show_chart(fb_age_fig)
 
         fb_geo_left, fb_geo_right = st.columns(2)
         for column, key, label in [(fb_geo_left, "countries", "Country"), (fb_geo_right, "cities", "City")]:
@@ -586,14 +598,14 @@ with tab_meta:
                     fb_geo_fig = px.bar(geo, x="Share", y=label, orientation="h", text="Percent", template="plotly_white", color_discrete_sequence=["#0f766e"])
                     fb_geo_fig.update_traces(texttemplate="%{text:.1f}%", textposition="outside")
                     fb_geo_fig.update_layout(title=f"Facebook top {key}", height=410, margin=dict(l=20, r=45, t=55, b=20), xaxis_title="Share of followers", xaxis_tickformat=".0%", yaxis_title="", paper_bgcolor="white", plot_bgcolor="white", font_color="#334155")
-                    st.plotly_chart(fb_geo_fig, width="stretch")
+                    show_chart(fb_geo_fig)
 
         follows = pd.DataFrame(facebook_audience.get("follows", []))
         if not follows.empty:
             follows["date"] = pd.to_datetime(follows["date"])
             follows_fig = px.bar(follows, x="date", y="value", template="plotly_white", color_discrete_sequence=["#1877f2"], labels={"date": "", "value": "New follows"})
             follows_fig.update_layout(title="Facebook daily follows in the export", height=320, margin=dict(l=20, r=20, t=55, b=20), paper_bgcolor="white", plot_bgcolor="white", font_color="#334155")
-            st.plotly_chart(follows_fig, width="stretch")
+            show_chart(follows_fig)
 
     audience = (meta_data or {}).get("meta_audience", {})
     if audience:
@@ -622,7 +634,7 @@ with tab_meta:
                 hover_data={"Followers": True, "Share": ":.1%"},
             )
             age_fig.update_layout(title="Age and gender", height=390, margin=dict(l=20, r=20, t=55, b=20), xaxis_title="", yaxis_title="Share of reported followers", yaxis_tickformat=".0%", legend_title_text="", paper_bgcolor="white", plot_bgcolor="white", font_color="#334155")
-            st.plotly_chart(age_fig, width="stretch")
+            show_chart(age_fig)
 
         country_names = {
             "US": "United States", "IN": "India", "PR": "Puerto Rico", "CN": "China", "TR": "Türkiye",
@@ -658,7 +670,7 @@ with tab_meta:
                     top = frame.nlargest(10, "Followers").sort_values("Followers")
                     geo_fig = px.bar(top, x="Share", y=dimension, orientation="h", text="Followers", template="plotly_white", color_discrete_sequence=["#0f766e"])
                     geo_fig.update_layout(title=title, height=390, margin=dict(l=20, r=20, t=55, b=20), xaxis_title="Share of reported followers", xaxis_tickformat=".0%", yaxis_title="", paper_bgcolor="white", plot_bgcolor="white", font_color="#334155")
-                    st.plotly_chart(geo_fig, width="stretch")
+                    show_chart(geo_fig)
         st.info("Facebook Page follower demographics are no longer returned by the current Meta Page Insights API. The Instagram charts in this section remain live; the Facebook charts use the dated export above.")
     if meta_data and meta_data.get("meta_audience_error"):
         st.caption(f"Meta Audience API: {meta_data['meta_audience_error']}")
@@ -711,7 +723,7 @@ with tab_youtube:
                 plot_bgcolor="white",
                 font_color="#334155",
             )
-            st.plotly_chart(views_fig, width="stretch")
+            show_chart(views_fig)
 
         chart_left, chart_right = st.columns(2)
         engagement_cols = [column for column in ["likes", "comments", "shares"] if column in daily]
@@ -724,7 +736,7 @@ with tab_youtube:
             fig = px.bar(chart, x="day", y="Count", color="Engagement", barmode="stack", color_discrete_sequence=["#ef4444", "#f59e0b", "#2563eb"], template="plotly_white")
             fig.update_layout(title="Positive engagement", height=350, margin=dict(l=20, r=20, t=55, b=20), xaxis_title="", legend_title_text="", paper_bgcolor="white", plot_bgcolor="white", font_color="#334155")
             with chart_left:
-                st.plotly_chart(fig, width="stretch")
+                show_chart(fig)
         if "subscribersGained" in daily and "subscribersLost" in daily:
             subscriber_chart = daily[["day", "subscribersGained", "subscribersLost"]].copy()
             subscriber_chart["Net subscribers"] = subscriber_chart["subscribersGained"] - subscriber_chart["subscribersLost"]
@@ -739,7 +751,7 @@ with tab_youtube:
             )
             sub_fig.update_layout(title="Daily subscriber change", height=350, margin=dict(l=20, r=20, t=55, b=20), xaxis_title="", legend_title_text="", paper_bgcolor="white", plot_bgcolor="white", font_color="#334155")
             with chart_right:
-                st.plotly_chart(sub_fig, width="stretch")
+                show_chart(sub_fig)
     elif youtube_data:
         st.info("Channel totals connected successfully, but YouTube Analytics did not return daily data.")
     if youtube_data and youtube_data.get("analytics_error"):
@@ -787,7 +799,7 @@ with tab_linkedin:
         li_fig.update_traces(name="Daily impressions", line=dict(color="#60a5fa", width=1.5), fillcolor="rgba(96,165,250,.22)")
         li_fig.add_scatter(x=li_trend["Date"], y=li_trend["Impressions · 7-day avg"], mode="lines", name="7-day average", line=dict(color="#0a66c2", width=3))
         li_fig.update_layout(title="LinkedIn impressions over time", height=400, margin=dict(l=20, r=20, t=55, b=20), xaxis_title="", yaxis_title="Impressions", legend_title_text="", hovermode="x unified", paper_bgcolor="white", plot_bgcolor="white", font_color="#334155")
-        st.plotly_chart(li_fig, width="stretch")
+        show_chart(li_fig)
 
         follower_trend = li_followers.sort_values("Date").copy()
         follower_trend["Organic"] = pd.to_numeric(follower_trend.get("Organic followers"), errors="coerce").fillna(0)
@@ -803,8 +815,8 @@ with tab_linkedin:
         visitor_fig = px.line(visitor_chart, x="Date", y="Count", color="Metric", template="plotly_white", color_discrete_sequence=["#7c3aed", "#10b981"])
         visitor_fig.update_layout(title="Page traffic", height=350, margin=dict(l=20, r=20, t=55, b=20), xaxis_title="", legend_title_text="", hovermode="x unified", paper_bgcolor="white", plot_bgcolor="white", font_color="#334155")
         li_left, li_right = st.columns(2)
-        with li_left: st.plotly_chart(follower_fig, width="stretch")
-        with li_right: st.plotly_chart(visitor_fig, width="stretch")
+        with li_left: show_chart(follower_fig)
+        with li_right: show_chart(visitor_fig)
 
         st.markdown("##### Follower audience breakdown")
         audience_files = {
@@ -825,7 +837,7 @@ with tab_linkedin:
                     category_column = next(column for column in top.columns if column != value_column)
                     audience_fig = px.bar(top, x=value_column, y=category_column, orientation="h", template="plotly_white", color_discrete_sequence=["#0a66c2"])
                     audience_fig.update_layout(height=390, margin=dict(l=20, r=20, t=20, b=20), xaxis_title="Followers", yaxis_title="", paper_bgcolor="white", plot_bgcolor="white", font_color="#334155")
-                    st.plotly_chart(audience_fig, width="stretch")
+                    show_chart(audience_fig)
 
         if not li_posts.empty:
             st.markdown("##### Recent LinkedIn posts in the export")
@@ -910,9 +922,9 @@ with tab_posts:
             )
             mix_left, mix_right = st.columns(2)
             with mix_left:
-                st.plotly_chart(volume_fig, width="stretch")
+                show_chart(volume_fig)
             with mix_right:
-                st.plotly_chart(engagement_fig, width="stretch")
+                show_chart(engagement_fig)
             st.dataframe(
                 facebook_frame.drop(columns=["Engagements"]),
                 width="stretch",
