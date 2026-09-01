@@ -84,7 +84,7 @@ The local files are excluded by `.gitignore`. A safe placeholder file is availab
 The required structure is:
 
 ```toml
-youtube_redirect_uri = "https://YOUR-APP.streamlit.app/"
+youtube_redirect_uri = "https://smemediasocials.streamlit.app/"
 
 [meta]
 app_id = "..."
@@ -103,7 +103,7 @@ project_id = "..."
 auth_uri = "https://accounts.google.com/o/oauth2/auth"
 token_uri = "https://oauth2.googleapis.com/token"
 auth_provider_x509_cert_url = "https://www.googleapis.com/oauth2/v1/certs"
-redirect_uris = ["https://YOUR-APP.streamlit.app/"]
+redirect_uris = ["https://smemediasocials.streamlit.app/"]
 
 [youtube_oauth_token]
 refresh_token = "..."
@@ -131,7 +131,7 @@ One-time Google Cloud setup:
 5. Add that URL to the OAuth client’s **Authorized redirect URIs**.
 6. Put the same URL in `youtube_redirect_uri` and in the `redirect_uris` list in Streamlit Secrets.
 
-The local `secrets.toml` contains a clearly marked Social Dashboard URL placeholder because the deployed URL is not stored in this repository. Replace both placeholder occurrences before pasting the file into Streamlit.
+The configured Social Dashboard callback is `https://smemediasocials.streamlit.app/`. The same URL must remain in both `youtube_redirect_uri` and the OAuth client's `redirect_uris` list.
 
 To reconnect YouTube after a token expires or is revoked:
 
