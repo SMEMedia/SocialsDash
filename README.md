@@ -45,20 +45,6 @@ The charts allow hover tooltips, but panning and zooming are intentionally disab
 
 At least two permanent SME employees should have access to every service below. Do not leave any service owned only by a departing employee.
 
-### GitHub
-
-The replacement owner needs administrator access to the `myschne/SocialsDash` repository. If the repository is under a personal GitHub account, transfer it to an SME-controlled GitHub organization or another approved company owner.
-
-### Streamlit Community Cloud
-
-The replacement owner needs access to the hosted app at [share.streamlit.io](https://share.streamlit.io/). Confirm that they can:
-
-- Open the app settings.
-- View deployment logs.
-- Reboot or redeploy the app.
-- Edit the app’s encrypted secrets.
-- Connect the app to the GitHub repository.
-
 ### Meta
 
 The replacement owner needs appropriate access to:
@@ -98,6 +84,8 @@ The local files are excluded by `.gitignore`. A safe placeholder file is availab
 The required structure is:
 
 ```toml
+youtube_redirect_uri = "https://YOUR-APP.streamlit.app/"
+
 [meta]
 app_id = "..."
 app_secret = "..."
@@ -108,14 +96,56 @@ page_access_token = "..."
 app_secret = "..."
 access_token = "..."
 
-[youtube]
+[youtube_web_oauth_client]
 client_id = "..."
 client_secret = "..."
+project_id = "..."
+auth_uri = "https://accounts.google.com/o/oauth2/auth"
+token_uri = "https://oauth2.googleapis.com/token"
+auth_provider_x509_cert_url = "https://www.googleapis.com/oauth2/v1/certs"
+redirect_uris = ["https://YOUR-APP.streamlit.app/"]
+
+[youtube_oauth_token]
 refresh_token = "..."
 token_uri = "https://oauth2.googleapis.com/token"
+client_id = "..."
+client_secret = "..."
+scopes = [
+  "https://www.googleapis.com/auth/youtube.readonly",
+  "https://www.googleapis.com/auth/yt-analytics.readonly"
+]
 ```
 
 Do not add quotation marks around the entire secrets block in Streamlit. Paste it as TOML exactly as shown.
+
+## Set up YouTube reconnection
+
+The dashboard includes the same administrator-assisted YouTube reconnect flow used by VideoDash and Scorecards.
+
+One-time Google Cloud setup:
+
+1. Open the Google Cloud project that owns the YouTube OAuth client.
+2. Confirm **YouTube Data API v3** and **YouTube Analytics API** are enabled.
+3. Confirm the OAuth client type is **Web application**.
+4. Copy the exact public Social Dashboard URL, including the final `/`.
+5. Add that URL to the OAuth client’s **Authorized redirect URIs**.
+6. Put the same URL in `youtube_redirect_uri` and in the `redirect_uris` list in Streamlit Secrets.
+
+The local `secrets.toml` contains a clearly marked Social Dashboard URL placeholder because the deployed URL is not stored in this repository. Replace both placeholder occurrences before pasting the file into Streamlit.
+
+To reconnect YouTube after a token expires or is revoked:
+
+1. Open the dashboard.
+2. In the left menu, choose **Reconnect YouTube**.
+3. Select **Start YouTube sign-in**, then **Continue to Google**.
+4. Sign in with a Google account that owns or manages the SME Media YouTube channel.
+5. Approve the YouTube read-only permissions.
+6. When Google returns to the dashboard, copy or download the generated `[youtube_oauth_token]` block.
+7. Open the app’s Streamlit Secrets settings.
+8. Replace the complete old `[youtube_oauth_token]` section with the new block.
+9. Save the secrets and wait for the app to restart.
+
+Streamlit does not allow an app to rewrite its own saved secrets, so the copy-and-save step is required.
 
 ## How publishing works
 
@@ -255,18 +285,6 @@ Before publishing any update:
 5. Check `git status` and verify that `secrets.toml` is not listed.
 6. Commit only the intended files.
 7. Push to `main` and verify the hosted app redeploys successfully.
-
-## Final ownership-transfer checklist
-
-- [ ] Two SME employees can administer the GitHub repository.
-- [ ] Two SME employees can administer the Streamlit app.
-- [ ] Two SME employees can administer the Meta Business portfolio and developer app.
-- [ ] Two SME employees can administer the Google Cloud project and YouTube channel.
-- [ ] Streamlit secrets have been transferred through an approved secure system.
-- [ ] Credentials have been rotated after the ownership change.
-- [ ] The public dashboard URL has been added to this README.
-- [ ] A replacement technical contact has successfully performed one test deployment.
-- [ ] A future owner is assigned to refresh LinkedIn and Facebook audience exports.
 
 ## Support boundary
 

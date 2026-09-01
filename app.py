@@ -3,6 +3,12 @@ from __future__ import annotations
 import html
 import json
 import tomllib
+import base64
+import binascii
+import hashlib
+import hmac
+import secrets
+import time
 from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
@@ -11,6 +17,7 @@ import pandas as pd
 import plotly.express as px
 import requests
 import streamlit as st
+from google_auth_oauthlib.flow import Flow
 
 
 st.set_page_config(page_title="SME Media | Social Performance", page_icon="📈", layout="wide")
@@ -20,6 +27,10 @@ INSTAGRAM_API = "https://graph.instagram.com/v23.0"
 GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
 YOUTUBE_API = "https://www.googleapis.com/youtube/v3"
 YOUTUBE_ANALYTICS_API = "https://youtubeanalytics.googleapis.com/v2"
+YOUTUBE_SCOPES = [
+    "https://www.googleapis.com/auth/youtube.readonly",
+    "https://www.googleapis.com/auth/yt-analytics.readonly",
+]
 LINKEDIN_DATA_DIR = Path(__file__).with_name("data") / "linkedin"
 LINKEDIN_UPLOAD_DATE = "August 25, 2026"
 FACEBOOK_AUDIENCE_FILE = Path(__file__).with_name("data") / "meta" / "facebook_audience_2026-08-25.json"
@@ -48,6 +59,126 @@ def secret_section(name: str) -> dict[str, Any]:
             with local_file.open("rb") as handle:
                 return dict(tomllib.load(handle).get(name, {}))
         return {}
+
+
+def secret_value(name: str, default: Any = None) -> Any:
+    try:
+        return st.secrets.get(name, default)
+    except FileNotFoundError:
+        local_file = Path(__file__).with_name("secrets.toml")
+        if local_file.is_file():
+            with local_file.open("rb") as handle:
+                return tomllib.load(handle).get(name, default)
+        return default
+
+
+def toml_table(name: str, values: dict[str, Any]) -> str:
+    lines = [f"[{name}]"]
+    for key, value in values.items():
+        if value is None:
+            continue
+        encoded = str(value).lower() if isinstance(value, bool) else json.dumps(value)
+        lines.append(f"{key} = {encoded}")
+    return "\n".join(lines)
+
+
+def youtube_web_oauth_settings() -> tuple[dict[str, Any], str]:
+    client = secret_section("youtube_web_oauth_client")
+    redirect_uri = str(secret_value("youtube_redirect_uri", "")).strip()
+    if client and redirect_uri and "REPLACE" not in redirect_uri.upper():
+        return client, redirect_uri
+    raise RuntimeError(
+        "YouTube reconnection needs [youtube_web_oauth_client] and the exact "
+        "youtube_redirect_uri in Streamlit Secrets. See the README setup section."
+    )
+
+
+def youtube_oauth_state(client_secret: str, code_verifier: str) -> str:
+    payload = json.dumps(
+        {"created_at": int(time.time()), "nonce": secrets.token_urlsafe(24), "code_verifier": code_verifier},
+        separators=(",", ":"),
+    )
+    encoded = base64.urlsafe_b64encode(payload.encode()).decode().rstrip("=")
+    signature = hmac.new(client_secret.encode(), encoded.encode(), hashlib.sha256).hexdigest()
+    return f"{encoded}.{signature}"
+
+
+def youtube_oauth_code_verifier(state: str, client_secret: str) -> str | None:
+    try:
+        encoded, signature = state.rsplit(".", 1)
+        expected = hmac.new(client_secret.encode(), encoded.encode(), hashlib.sha256).hexdigest()
+        if not hmac.compare_digest(signature, expected):
+            return None
+        padding = "=" * (-len(encoded) % 4)
+        payload = json.loads(base64.urlsafe_b64decode(encoded + padding).decode())
+        created_at = int(payload["created_at"])
+        code_verifier = str(payload["code_verifier"])
+        if not 0 <= time.time() - created_at <= 900 or not 43 <= len(code_verifier) <= 128:
+            return None
+        return code_verifier
+    except (binascii.Error, KeyError, ValueError, TypeError, UnicodeDecodeError):
+        return None
+
+
+def render_youtube_reconnect_page() -> None:
+    st.title("Reconnect YouTube")
+    st.write("Use this page only when the dashboard reports that YouTube authorization expired or was revoked.")
+    st.warning(
+        "This page creates a replacement token block. An administrator must copy that block "
+        "into the app's Streamlit Secrets because the app cannot edit its own saved secrets."
+    )
+    try:
+        client, redirect_uri = youtube_web_oauth_settings()
+    except RuntimeError as exc:
+        st.error(str(exc))
+        return
+
+    code = st.query_params.get("code")
+    returned_state = st.query_params.get("state")
+    oauth_error = st.query_params.get("error")
+    if oauth_error:
+        st.error(f"Google did not authorize YouTube: {oauth_error}")
+        st.query_params.clear()
+        return
+
+    if code:
+        verifier = youtube_oauth_code_verifier(str(returned_state), str(client.get("client_secret", ""))) if returned_state else None
+        if not verifier:
+            st.error("The authorization session could not be verified. Start YouTube sign-in again.")
+            st.query_params.clear()
+            return
+        try:
+            flow = Flow.from_client_config({"web": client}, scopes=YOUTUBE_SCOPES, state=returned_state, autogenerate_code_verifier=False)
+            flow.redirect_uri = redirect_uri
+            flow.code_verifier = verifier
+            flow.fetch_token(code=code)
+            token_values = json.loads(flow.credentials.to_json())
+        except Exception as exc:
+            st.query_params.clear()
+            st.error(f"Google returned authorization, but the new token could not be created: {exc}")
+            return
+        st.query_params.clear()
+        token_toml = toml_table("youtube_oauth_token", token_values)
+        st.success("YouTube authorization succeeded. Complete the steps below.")
+        st.code(token_toml, language="toml")
+        st.download_button("Download replacement token block", data=token_toml, file_name="youtube-token-for-streamlit.toml", mime="text/plain")
+        st.markdown(
+            "1. Open this app in Streamlit Community Cloud and choose **Manage app**.\n"
+            "2. Open **Settings**, then **Secrets**.\n"
+            "3. Replace the complete `[youtube_oauth_token]` section with the block above.\n"
+            "4. Save, wait for the app to restart, and return to **Dashboard**."
+        )
+        return
+
+    if st.button("Start YouTube sign-in", type="primary", width="stretch"):
+        flow = Flow.from_client_config({"web": client}, scopes=YOUTUBE_SCOPES, autogenerate_code_verifier=False)
+        flow.redirect_uri = redirect_uri
+        code_verifier = secrets.token_urlsafe(64)
+        flow.code_verifier = code_verifier
+        state = youtube_oauth_state(str(client.get("client_secret", "")), code_verifier)
+        authorization_url, _ = flow.authorization_url(state=state, access_type="offline", include_granted_scopes="true", prompt="consent")
+        st.link_button("Continue to Google", authorization_url, type="primary", width="stretch")
+        st.caption("Sign in with the Google account that owns or manages the SME Media YouTube channel.")
 
 
 def request_json(method: str, url: str, **kwargs: Any) -> dict[str, Any]:
@@ -207,20 +338,27 @@ def fetch_meta(start: str, end: str) -> dict[str, Any]:
 
 @st.cache_data(ttl=900, show_spinner=False)
 def fetch_youtube(start: str, end: str) -> dict[str, Any]:
-    cfg = secret_section("youtube")
+    cfg = secret_section("youtube_oauth_token") or secret_section("youtube")
     missing = [key for key in ("client_id", "client_secret", "refresh_token") if not cfg.get(key)]
     if missing:
         raise ApiError(f"YouTube credential is missing: {', '.join(missing)}")
-    token = request_json(
-        "POST",
-        cfg.get("token_uri", GOOGLE_TOKEN_URL),
-        data={
-            "client_id": cfg["client_id"],
-            "client_secret": cfg["client_secret"],
-            "refresh_token": cfg["refresh_token"],
-            "grant_type": "refresh_token",
-        },
-    )["access_token"]
+    try:
+        token = request_json(
+            "POST",
+            cfg.get("token_uri", GOOGLE_TOKEN_URL),
+            data={
+                "client_id": cfg["client_id"],
+                "client_secret": cfg["client_secret"],
+                "refresh_token": cfg["refresh_token"],
+                "grant_type": "refresh_token",
+            },
+        )["access_token"]
+    except ApiError as exc:
+        raise ApiError(
+            "YouTube authorization expired or was revoked. Open Reconnect YouTube from "
+            "the sidebar, sign in with a channel owner or manager, and replace the "
+            "[youtube_oauth_token] block in Streamlit Secrets."
+        ) from exc
     headers = {"Authorization": f"Bearer {token}"}
     channel_payload = request_json(
         "GET",
@@ -424,6 +562,20 @@ st.markdown(
     """,
     unsafe_allow_html=True,
 )
+
+if "code" in st.query_params or "error" in st.query_params:
+    render_youtube_reconnect_page()
+    st.stop()
+
+with st.sidebar:
+    app_page = st.radio(
+        "Go to",
+        ["Dashboard", "Reconnect YouTube"],
+        help="Use Reconnect YouTube only when the dashboard reports an authorization problem.",
+    )
+if app_page == "Reconnect YouTube":
+    render_youtube_reconnect_page()
+    st.stop()
 
 st.markdown('<div class="eyebrow">SME Media Intelligence</div>', unsafe_allow_html=True)
 st.markdown('<div class="hero-title">Social performance, at a glance.</div>', unsafe_allow_html=True)
