@@ -87,4 +87,3 @@ Never send the authorization information through email, chat, GitHub, tickets, o
 - Store credentials only in the approved secret-management location.
 - Escalate snapshot replacement, credential, deployment, or code changes to the assigned technical owner.
 
-*** Delete File: statebystatedash/README.md
