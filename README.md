@@ -1,291 +1,90 @@
 # SME Media Social Performance Dashboard
 
-This is the handoff and operating guide for SME Media’s social media dashboard.
-
-The dashboard combines live data from Meta and YouTube with manually exported LinkedIn and Facebook audience data. It is built with Streamlit and hosted from the `main` branch of the GitHub repository.
+This dashboard combines live Meta and YouTube information with saved LinkedIn and Facebook audience snapshots. It is designed for routine use in a web browser.
 
 ## Important links
 
-- Source code: [github.com/myschne/SocialsDash](https://github.com/myschne/SocialsDash)
-- Streamlit administration: [share.streamlit.io](https://share.streamlit.io/)
-- Meta Business Suite: [business.facebook.com](https://business.facebook.com/)
-- Meta developer apps: [developers.facebook.com/apps](https://developers.facebook.com/apps/)
-- Google Cloud Console: [console.cloud.google.com](https://console.cloud.google.com/)
+- [Open the Social Dashboard](https://socialsdash.streamlit.app/)
+- [SMEMedia repository](https://github.com/SMEMedia/SocialsDash)
+- [Streamlit Community Cloud](https://share.streamlit.io/)
 
-Add the public dashboard URL here after ownership is transferred:
+## Use the dashboard
 
-> Dashboard URL: ______________________________
+1. Select the reporting window.
+2. Review the channel tabs.
+3. Select **Refresh data** once if live information appears stale.
+4. Check the displayed update date for LinkedIn and Facebook audience-demographic sections.
 
-## What the dashboard contains
+Live Meta and YouTube responses are temporarily saved to keep the dashboard responsive. Platform reporting can lag by 24–72 hours. LinkedIn and Facebook audience demographics are dated snapshots and do not change when the reporting window changes.
 
-| Section | Source | Update method |
-|---|---|---|
-| Overview | Meta and YouTube | Live API connection |
-| Meta performance | Facebook Page Insights | Live API connection |
-| Instagram audience | Meta Instagram API | Live API connection; last-90-days reporting window |
-| Facebook audience | Meta Business Suite export | Static snapshot uploaded August 25, 2026 |
-| YouTube | YouTube Data and Analytics APIs | Live API connection |
-| LinkedIn | LinkedIn analytics exports | Static snapshot uploaded August 25, 2026 |
-| Facebook, Instagram, and YouTube content | Platform APIs | Live API connection |
-| X and TikTok | Profile links only | No analytics connection |
+## What is live and what is saved
 
-Live API responses are cached for 15 minutes. Some platform analytics can lag by 24–72 hours.
+| Section | Update behavior |
+| --- | --- |
+| Meta and Instagram performance | Live connection |
+| YouTube performance | Live connection |
+| Facebook audience demographics | Dated saved snapshot |
+| LinkedIn analytics | Dated saved snapshot |
+| X and TikTok | Profile links only |
 
-## Routine use — no technical work required
+## Reconnect YouTube
 
-1. Open the public dashboard link.
-2. Select a reporting window in the left sidebar.
-3. Use the tabs across the top to review each channel.
-4. Select **Refresh data** if the displayed live information appears stale.
-5. Remember that LinkedIn and Facebook audience demographics are dated static snapshots. Changing the reporting window does not change those sections.
+Use this process when the dashboard reports that YouTube authorization expired or was revoked:
 
-The charts allow hover tooltips, but panning and zooming are intentionally disabled.
+1. Choose **Reconnect YouTube**.
+2. Select **Start YouTube sign-in**, then **Continue to Google**.
+3. Sign in with an account that manages the SME Media YouTube channel.
+4. Approve the requested read-only access.
+5. Follow the on-screen instructions to provide the renewed authorization to the Streamlit owner.
+6. After it is saved, return to the dashboard and refresh once.
 
-## Who needs access before the current owner leaves
-
-At least two permanent SME employees should have access to every service below. Do not leave any service owned only by a departing employee.
-
-### Meta
-
-The replacement owner needs appropriate access to:
-
-- The SME Media Facebook Page.
-- The SME Media Instagram professional account.
-- The associated Meta Business portfolio.
-- The Meta developer app used to issue the access tokens.
-
-They should be able to view insights and administer the developer app. The Facebook Page connection generally relies on Page access and `pages_read_engagement`/Page Insights permissions.
-
-### Google and YouTube
-
-The replacement owner needs access to:
-
-- The SME Media YouTube channel.
-- The Google Cloud project that owns the OAuth client.
-- The YouTube Data API and YouTube Analytics API configuration.
-
-### Credential handoff
-
-Transfer credentials through an SME-approved password manager or secure credential system. Do not send tokens through email, Teams, Slack, tickets, or documents.
-
-After ownership is transferred, rotate the Meta tokens, Instagram token, YouTube OAuth client secret, and YouTube refresh token. Then update the Streamlit secrets and test the dashboard.
-
-## Secrets and security
-
-The dashboard needs credentials for Meta, Instagram, and YouTube. These values must never be committed to GitHub.
-
-There are two supported secret locations:
-
-- Hosted app: Streamlit Community Cloud → app settings → **Secrets**
-- Local computer: `secrets.toml` in this project folder, or `.streamlit/secrets.toml`
-
-The local files are excluded by `.gitignore`. A safe placeholder file is available at `.streamlit/secrets.example.toml`.
-
-The required structure is:
-
-```toml
-youtube_redirect_uri = "https://smemediasocials.streamlit.app/"
-
-[meta]
-app_id = "..."
-app_secret = "..."
-user_access_token = "..."
-page_access_token = "..."
-
-[instagram]
-app_secret = "..."
-access_token = "..."
-
-[youtube_web_oauth_client]
-client_id = "..."
-client_secret = "..."
-project_id = "..."
-auth_uri = "https://accounts.google.com/o/oauth2/auth"
-token_uri = "https://oauth2.googleapis.com/token"
-auth_provider_x509_cert_url = "https://www.googleapis.com/oauth2/v1/certs"
-redirect_uris = ["https://smemediasocials.streamlit.app/"]
-
-[youtube_oauth_token]
-refresh_token = "..."
-token_uri = "https://oauth2.googleapis.com/token"
-client_id = "..."
-client_secret = "..."
-scopes = [
-  "https://www.googleapis.com/auth/youtube.readonly",
-  "https://www.googleapis.com/auth/yt-analytics.readonly"
-]
-```
-
-Do not add quotation marks around the entire secrets block in Streamlit. Paste it as TOML exactly as shown.
-
-## Set up YouTube reconnection
-
-The dashboard includes the same administrator-assisted YouTube reconnect flow used by VideoDash and Scorecards.
-
-One-time Google Cloud setup:
-
-1. Open the Google Cloud project that owns the YouTube OAuth client.
-2. Confirm **YouTube Data API v3** and **YouTube Analytics API** are enabled.
-3. Confirm the OAuth client type is **Web application**.
-4. Copy the exact public Social Dashboard URL, including the final `/`.
-5. Add that URL to the OAuth client’s **Authorized redirect URIs**.
-6. Put the same URL in `youtube_redirect_uri` and in the `redirect_uris` list in Streamlit Secrets.
-
-The configured Social Dashboard callback is `https://smemediasocials.streamlit.app/`. The same URL must remain in both `youtube_redirect_uri` and the OAuth client's `redirect_uris` list.
-
-To reconnect YouTube after a token expires or is revoked:
-
-1. Open the dashboard.
-2. In the left menu, choose **Reconnect YouTube**.
-3. Select **Start YouTube sign-in**, then **Continue to Google**.
-4. Sign in with a Google account that owns or manages the SME Media YouTube channel.
-5. Approve the YouTube read-only permissions.
-6. When Google returns to the dashboard, copy or download the generated `[youtube_oauth_token]` block.
-7. Open the app’s Streamlit Secrets settings.
-8. Replace the complete old `[youtube_oauth_token]` section with the new block.
-9. Save the secrets and wait for the app to restart.
-
-Streamlit does not allow an app to rewrite its own saved secrets, so the copy-and-save step is required.
-
-## How publishing works
-
-The hosted Streamlit app reads the `main` branch of the GitHub repository. When a change is pushed to `main`, Streamlit normally redeploys automatically within a few minutes.
-
-If a change does not appear:
-
-1. Open the app in Streamlit Community Cloud.
-2. Confirm the app points to the correct repository, branch (`main`), and entry file (`app.py`).
-3. Open the app menu and reboot the app.
-4. Review the deployment logs for a red error message.
-5. Confirm all secrets are present and correctly formatted.
-
-## Updating the static LinkedIn data
-
-The LinkedIn tab is not connected to an API. Its current data covers August 24, 2025 through August 23, 2026 and was uploaded on August 25, 2026.
-
-LinkedIn exports three workbooks:
-
-- Followers
-- Content
-- Visitors
-
-The dashboard reads normalized CSV files in `data/linkedin/`. The conversion utility is `scripts/prepare_linkedin_data.py`.
-
-This update requires a technical owner or someone comfortable running Python:
-
-1. Export the three reports from the LinkedIn Page administrator interface.
-2. Save or convert them to `.xlsx` files.
-3. Install the project requirements and `openpyxl` if it is not already available.
-4. From this project folder, run:
-
-```powershell
-python scripts/prepare_linkedin_data.py `
-  --followers "path\to\followers.xlsx" `
-  --content "path\to\content.xlsx" `
-  --visitors "path\to\visitors.xlsx" `
-  --output "data\linkedin"
-```
-
-5. Update the `LINKEDIN_UPLOAD_DATE` value near the top of `app.py`.
-6. Run and review the dashboard locally.
-7. Commit the changed CSV files and `app.py`, then push them to `main`.
-
-The LinkedIn CSV files contain analytics and post data. Confirm SME’s data-sharing policy before changing repository visibility or copying them elsewhere.
-
-## Updating the static Facebook audience data
-
-Meta no longer provides Facebook Page follower age, gender, country, or city metrics through the current Page Insights API. This dashboard therefore uses a static Business Suite export.
-
-The current normalized snapshot is:
-
-`data/meta/facebook_audience_2026-08-25.json`
-
-Updating it requires a technical owner because the Business Suite CSV contains several differently shaped tables in one file. The owner should:
-
-1. Export the Facebook audience report from Meta Business Suite.
-2. Replace the normalized JSON snapshot with the new values.
-3. Rename the file with the new export date.
-4. Update `FACEBOOK_AUDIENCE_FILE` in `app.py` to the new filename.
-5. Update the upload date stored inside the JSON file.
-6. Test locally, commit, and push the change.
-
-Treat the audience export as sensitive analytics data.
-
-## Running the dashboard locally
-
-Local setup is optional and intended for a technical owner.
-
-Requirements:
-
-- Python 3.11 or newer
-- Internet access
-- A local `secrets.toml` file with valid credentials
-
-Commands:
-
-```powershell
-python -m pip install -r requirements.txt
-python -m streamlit run app.py
-```
-
-Streamlit will display a local URL, usually `http://localhost:8501`.
+Never send the authorization information through email, chat, GitHub, tickets, or screenshots.
 
 ## Troubleshooting
 
-### The entire app will not load
+### Meta or Instagram information is unavailable
 
-- Check the Streamlit deployment logs.
-- Confirm `app.py` is the configured entry file.
-- Confirm all packages in `requirements.txt` installed successfully.
-- Reboot the app from Streamlit Community Cloud.
+- Confirm other dashboard sections still load.
+- Refresh once.
+- If the error remains, record whether it affects Facebook, Instagram, or both.
+- Ask the Meta and Streamlit owners to confirm that the connection is active and still has access to the Page, Instagram account, Business portfolio, and developer app.
 
-### Meta or Instagram data is unavailable
+### YouTube information is unavailable
 
-- Confirm the Meta and Instagram secrets exist in Streamlit.
-- Check whether the token expired or was revoked.
-- Confirm the token owner still has access to the Facebook Page, Instagram account, Business portfolio, and Meta developer app.
-- Generate a replacement token through the approved Meta administrator account and update Streamlit secrets.
+- Try **Reconnect YouTube** if the message says authorization expired or was revoked.
+- Confirm the sign-in account manages the SME Media YouTube channel.
+- If reconnection fails, send the visible message and time to the Google/YouTube and Streamlit owners.
 
-### YouTube data is unavailable
+### LinkedIn or Facebook audience charts look old
 
-- Confirm the YouTube secrets exist in Streamlit.
-- Confirm the Google Cloud APIs are enabled.
-- Check whether the OAuth refresh token was revoked.
-- Reauthorize with an account that manages the SME Media YouTube channel.
+- Check the update date shown in the dashboard.
+- These sections are saved snapshots, so this is expected until a new approved export is processed.
+- Request a snapshot update from the assigned technical owner and provide the desired reporting period.
 
-### A static LinkedIn or Facebook chart looks old
+### A detailed metric is blank
 
-This is expected until a new report is manually exported and committed. The upload date is shown in the dashboard.
+- Some platforms do not return every metric for every content type.
+- Confirm the date range includes the content.
+- Compare the total metrics and any explanatory message before escalating.
 
-### The app shows data but a detailed metric is missing
+### Numbers do not match a social platform
 
-Platforms sometimes remove metrics or change permissions. The dashboard is designed to show available totals while displaying an explanatory message for an unavailable API section.
+- Confirm the same date range, timezone, account, content type, and metric definition.
+- Allow for the platform’s reporting delay.
+- Record both values, filters, and comparison time before escalating.
 
-## Project file guide
+### The dashboard will not open
 
-| Path | Purpose |
-|---|---|
-| `app.py` | Complete Streamlit dashboard and API integrations |
-| `requirements.txt` | Python packages installed by Streamlit |
-| `.streamlit/config.toml` | Visual theme settings |
-| `.streamlit/secrets.example.toml` | Safe credential template; contains no real secrets |
-| `data/linkedin/` | Static LinkedIn analytics snapshot |
-| `data/meta/` | Static Facebook audience snapshot |
-| `scripts/prepare_linkedin_data.py` | Converts LinkedIn Excel exports to dashboard CSV files |
-| `secrets.toml` | Local credentials; excluded from Git and never publishable |
+- Use the live link above.
+- Refresh the browser or try a private window.
+- Check Streamlit Community Cloud for an app status message.
+- Send a screenshot and approximate time to the Streamlit owner.
 
-## Change-control checklist
+## Ongoing maintenance
 
-Before publishing any update:
+- Record the update date whenever a new LinkedIn or Facebook audience snapshot is published.
+- Keep Meta, Google/YouTube, Streamlit, and repository access assigned to current SME staff.
+- Store credentials only in the approved secret-management location.
+- Escalate snapshot replacement, credential, deployment, or code changes to the assigned technical owner.
 
-1. Do not place credentials in code, CSV, JSON, screenshots, or documentation.
-2. Run `python -m py_compile app.py`.
-3. Run the dashboard locally and review every tab.
-4. Confirm static data dates and labels are accurate.
-5. Check `git status` and verify that `secrets.toml` is not listed.
-6. Commit only the intended files.
-7. Push to `main` and verify the hosted app redeploys successfully.
-
-## Support boundary
-
-Routine dashboard use does not require technical knowledge. Credential rotation, API repairs, static-data replacement, and code changes should be handled by an assigned technical owner or approved external developer.
+*** Delete File: statebystatedash/README.md
